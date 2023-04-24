@@ -1,10 +1,23 @@
-from ast import main
 import tkinter as tk
 from tkinter import messagebox
 from tictactoe_ai import TicTacToeAI
-import database
 import sqlite3
+import database
 
+def check_user(username, password):
+    conn = sqlite3.connect('users.db')
+    c = conn.cursor()
+    c.execute("SELECT * FROM users WHERE username=? AND password=?", (username, password))
+    user = c.fetchone()
+    conn.close()
+    return user is not None
+
+def add_user(username, password):
+    conn = sqlite3.connect('users.db')
+    c = conn.cursor()
+    c.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, password))
+    conn.commit()
+    conn.close()
 
 def init_database():
     conn = sqlite3.connect('users.db')
@@ -77,7 +90,7 @@ class LoginWindow(tk.Toplevel):
         username = self.username_entry.get()
         password = self.password_entry.get()
 
-        if database.check_user(username, password):
+        if sqlite3.check_user(username, password):
             self.destroy()
             self.master.deiconify()  # Réaffichez la fenêtre principale après la connexion réussie
             app = TicTacToe(self.master)  # Créez une instance de TicTacToe
@@ -99,7 +112,7 @@ class LoginWindow(tk.Toplevel):
         if self.user_exists(username):
             self.error_label.config(text="Ce pseudo est déjà pris.")
         else:
-            database.add_user(username, password)
+            sqlite3.add_user(username, password)
             self.error_label.config(text="Inscription réussie. Vous pouvez vous connecter.")
 
     def user_exists(self, username):
@@ -112,27 +125,62 @@ class LoginWindow(tk.Toplevel):
 
 
 class TicTacToe(tk.Frame):
-    # (code d'initialisation de la classe ici)
+    def __init__(self, master):
+        super().__init__(master)
+        self.master = master
+        self.master.title("Tic Tac Toe")
 
-    def check_winner(self, board, player):
-        winning_combinations = [
-            (0, 1, 2), (3, 4, 5), (6, 7, 8),
-            (0, 3, 6), (1, 4, 7), (2, 5, 8),
-            (0, 4, 8), (2, 4, 6)
-        ]
-        for a, b, c in winning_combinations:
-            if self.board[a] == self.board[b] == self.board[c] == player:
-                return True
-        return False
+        self.board = [" "] * 9
+        self.player = "X"
+        self.opponent = "O"
+        self.game_over = False
+        self.ai_level = tk.IntVar()
+        self.ai_level.set(1)
+        self.ai = TicTacToeAI(self.opponent, level=self.ai_level.get())
+
+        self.buttons = []
+        for i in range(9):
+            button = tk.Button(self, text=" ", width=10, height=3, command=lambda i=i: self.on_click(i))
+            button.grid(row=i // 3, column=i % 3)
+            self.buttons.append(button)
+
+        tk.Label(self, text="Niveau de l'IA:").grid(row=3, column=0, sticky="w")
+        tk.OptionMenu(self, self.ai_level, 1, 2, 3).grid(row=3, column=1)
+        tk.Button(self, text="Réinitialiser", command=self.reset_board).grid(row=3, column=2)
+
+        self.master.protocol("WM_DELETE_WINDOW", self.on_close)
+
+    def on_click(self, index):
+        if self.board[index] == " " and not self.game_over:
+            self.board[index] = self.player
+            self.buttons[index].config(text=self.player, state="disabled")
+
+            if self.check_winner(self.board, self.player):
+                self.show_result(f"Le joueur {self.player} gagne!")
+                self.game_over = True
+            elif " " not in self.board:
+                self.show_result("Match nul!")
+                self.game_over = True
+            else:
+                move = self.ai.get_move(self.board)
+                self.board[move] = self.opponent
+                self.buttons[move].config(text=self.opponent, state="disabled")
+
+                if self.check_winner(self.board, self.opponent):
+                    self.show_result(f"Le joueur {self.opponent} gagne!")
+                    self.game_over = True
+                elif " " not in self.board:
+                    self.show_result("Match nul!")
+                    self.game_over = True
 
     def show_result(self, result):
         messagebox.showinfo("Résultat", result)
         if "gagne" in result:
             winner = result.split(" ")[2]
             if winner == "X":
-                database.update_score(self.master.login_username, 1)
+                sqlite3.update_score(self.master.login_username, 1)
             else:
-                database.update_score(self.master.login_username, -1)
+                sqlite3.update_score(self.master.login_username, -1)
 
     def reset_board(self):
         self.board = [" "] * 9
